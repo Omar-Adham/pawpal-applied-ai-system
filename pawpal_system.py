@@ -1,4 +1,11 @@
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Priority(Enum):
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
 
 
 @dataclass
@@ -20,7 +27,7 @@ class Task:
     name: str
     category: str          # e.g. "walk", "feed", "meds", "grooming", "enrichment"
     duration_minutes: int
-    priority: str          # "high", "medium", or "low"
+    priority: Priority
     is_completed: bool = False
 
     def mark_complete(self) -> None:
@@ -32,6 +39,8 @@ class Task:
 
 @dataclass
 class DailyPlan:
+    owner: Owner = None
+    pet: Pet = None
     scheduled: list[Task] = field(default_factory=list)
     skipped: list[Task] = field(default_factory=list)
     total_time_used: int = 0
@@ -47,11 +56,19 @@ class Scheduler:
         self.pet = pet
         self.tasks: list[Task] = []
 
-    def add_task(self, _task: Task) -> None:
-        pass
+    def add_task(self, task: Task) -> None:
+        # Prevent duplicate task names
+        if any(t.name == task.name for t in self.tasks):
+            raise ValueError(f"A task named '{task.name}' already exists.")
+        self.tasks.append(task)
 
-    def remove_task(self, _name: str) -> None:
-        pass
+    def remove_task(self, name: str) -> None:
+        # Removes the first task matching the given name
+        for i, task in enumerate(self.tasks):
+            if task.name == name:
+                self.tasks.pop(i)
+                return
+        raise ValueError(f"No task named '{name}' found.")
 
     def generate_plan(self) -> DailyPlan:
-        pass
+        return DailyPlan(owner=self.owner, pet=self.pet)

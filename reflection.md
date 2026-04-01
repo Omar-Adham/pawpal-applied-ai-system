@@ -10,13 +10,94 @@
 
 3. **Generate and review a daily schedule** — The user asks the app to produce a daily care plan. The scheduler fits tasks into the owner's available time window, ordered by priority. The app displays the resulting plan and explains why tasks were included, deferred, or skipped, so the owner understands the reasoning.
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+**UML Class Diagram (Mermaid.js):**
+
+```mermaid
+classDiagram
+    class Owner {
+        +String name
+        +int available_minutes_per_day
+    }
+
+    class Pet {
+        +String name
+        +String species
+        +int age
+        +List~String~ special_needs
+    }
+
+    class Task {
+        +String name
+        +String category
+        +int duration_minutes
+        +Priority priority
+        +bool is_completed
+        +mark_complete()
+        +__repr__() String
+    }
+
+    class Priority {
+        <<enumeration>>
+        HIGH
+        MEDIUM
+        LOW
+    }
+
+    class Scheduler {
+        +Pet pet
+        +Owner owner
+        +List~Task~ tasks
+        +add_task(task: Task)
+        +remove_task(name: String)
+        +generate_plan() DailyPlan
+    }
+
+    class DailyPlan {
+        +Owner owner
+        +Pet pet
+        +List~Task~ scheduled
+        +List~Task~ skipped
+        +int total_time_used
+        +Dict reasoning
+        +summary() String
+    }
+
+    Scheduler --> Owner : has
+    Scheduler --> Pet : manages care for
+    Scheduler --> Task : holds list of
+    Scheduler --> DailyPlan : produces
+    Task --> Priority : uses
+    DailyPlan --> Owner : references
+    DailyPlan --> Pet : references
+```
+
+The initial design has five classes organized around a central `Scheduler` that coordinates all the other objects.
+
+- **`Owner`** — a data-only class that holds the owner's name and how many minutes per day they have available for pet care. It represents the time constraint the scheduler must respect.
+
+- **`Pet`** — a data-only class that stores the pet's name, species, age, and any special needs (e.g. "needs medication twice daily"). It gives the scheduler context about who is being cared for.
+
+- **`Task`** — represents a single care activity. It holds the task name, category (walk, feed, meds, grooming, enrichment), estimated duration in minutes, priority level (high/medium/low), and whether it has been completed. It can mark itself complete and produce a readable string description.
+
+- **`Scheduler`** — the central coordinator. It owns an `Owner`, a `Pet`, and a list of `Task` objects. Its job is to accept new tasks, remove tasks by name, and run `generate_plan()` which applies the scheduling logic and returns a `DailyPlan`.
+
+- **`DailyPlan`** — the output of scheduling. It holds two lists (scheduled tasks and skipped tasks), the total time used, and a reasoning dictionary that maps each skipped task to the reason it was left out. Its `summary()` method produces a human-readable explanation of the plan.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+After reviewing the skeleton, four changes were made based on identified gaps:
+
+1. **Added a `Priority` enum instead of a plain string.**
+   The original design used `priority: str`, which meant values like `"high"`, `"High"`, and `"urgent"` were all silently valid. When `generate_plan()` sorts tasks by priority it needs consistent, comparable values. Replacing the string with a `Priority(Enum)` with members `HIGH = 1`, `MEDIUM = 2`, `LOW = 3` makes sorting unambiguous and catches bad values at assignment time rather than silently at runtime.
+
+2. **Added `owner` and `pet` fields to `DailyPlan`.**
+   `DailyPlan` had no reference to who the plan was for. Without this, `summary()` could not include context like the pet's name or the owner's available time. Passing `owner` and `pet` into `DailyPlan` at construction time gives the output object everything it needs to produce a complete, readable summary.
+
+3. **Gave `generate_plan()` a safe placeholder return.**
+   The stub returned `None` implicitly, meaning any code that called `plan.scheduled` before the method was implemented would raise an `AttributeError`. Returning `DailyPlan(owner=self.owner, pet=self.pet)` makes the skeleton safely runnable end-to-end even before the scheduling logic is filled in.
+
+4. **Implemented duplicate-checking in `add_task()` and first-match removal in `remove_task()`.**
+   Without a uniqueness check, the same task name could be added twice, making removal ambiguous. `add_task()` now raises a `ValueError` if a task with that name already exists. `remove_task()` removes the first match and raises `ValueError` if no match is found, making the behavior explicit rather than silently doing nothing.
 
 ---
 
