@@ -17,6 +17,10 @@ classDiagram
     class Owner {
         +String name
         +int available_minutes_per_day
+        +List~Pet~ pets
+        +add_pet(pet: Pet)
+        +remove_pet(name: String)
+        +get_all_tasks() List~Task~
     }
 
     class Pet {
@@ -24,6 +28,10 @@ classDiagram
         +String species
         +int age
         +List~String~ special_needs
+        +List~Task~ tasks
+        +add_task(task: Task)
+        +remove_task(name: String)
+        +get_tasks() List~Task~
     }
 
     class Task {
@@ -31,6 +39,9 @@ classDiagram
         +String category
         +int duration_minutes
         +Priority priority
+        +String frequency
+        +String scheduled_time
+        +Date due_date
         +bool is_completed
         +mark_complete()
         +__repr__() String
@@ -38,23 +49,26 @@ classDiagram
 
     class Priority {
         <<enumeration>>
-        HIGH
-        MEDIUM
-        LOW
+        HIGH = 1
+        MEDIUM = 2
+        LOW = 3
     }
 
     class Scheduler {
-        +Pet pet
         +Owner owner
-        +List~Task~ tasks
-        +add_task(task: Task)
-        +remove_task(name: String)
+        +get_all_tasks() List~Task~
+        +add_task_to_pet(pet_name, task)
+        +remove_task_from_pet(pet_name, task_name)
+        +sort_by_time(tasks) List~Task~
+        +filter_by_status(tasks, completed) List~Task~
+        +filter_by_pet(pet_name) List~Task~
+        +complete_task(pet_name, task_name) Task
+        +detect_conflicts() List~String~
         +generate_plan() DailyPlan
     }
 
     class DailyPlan {
         +Owner owner
-        +Pet pet
         +List~Task~ scheduled
         +List~Task~ skipped
         +int total_time_used
@@ -62,13 +76,12 @@ classDiagram
         +summary() String
     }
 
-    Scheduler --> Owner : has
-    Scheduler --> Pet : manages care for
-    Scheduler --> Task : holds list of
-    Scheduler --> DailyPlan : produces
-    Task --> Priority : uses
+    Owner "1" *-- "0..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has
+    Task --> Priority : typed by
+    Scheduler --> Owner : coordinates
+    Scheduler ..> DailyPlan : produces
     DailyPlan --> Owner : references
-    DailyPlan --> Pet : references
 ```
 
 The initial design has five classes organized around a central `Scheduler` that coordinates all the other objects.
@@ -105,8 +118,15 @@ After reviewing the skeleton, four changes were made based on identified gaps:
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers two hard constraints and one soft constraint:
+
+1. **Time budget (hard)** — `Owner.available_minutes_per_day` is a firm ceiling. Any task whose `duration_minutes` exceeds the remaining time is skipped, no matter its priority. This reflects reality: an owner who has 60 minutes cannot do a 90-minute grooming session regardless of how important it is.
+
+2. **Completion status (hard)** — Tasks already marked `is_completed = True` are always skipped and recorded with the reason `"already completed"`. Re-scheduling a task the owner has already done would be misleading.
+
+3. **Priority level (soft)** — `Priority.HIGH` tasks are scheduled before `Priority.MEDIUM` and `Priority.LOW` ones. Within the same priority tier, shorter tasks are scheduled first to maximise the number of tasks that fit before the budget runs out. Priority is a soft constraint because a lower-priority task that fits may still be scheduled if there is time remaining after all higher-priority tasks have been processed.
+
+The time budget was treated as the most important constraint because it is the only one that comes from the real world rather than the data model. A pet owner's available time is non-negotiable; priority and completion status are both things the owner controls.
 
 **b. Tradeoffs**
 
@@ -138,13 +158,27 @@ The scheduler uses a greedy algorithm: it sorts all tasks by priority (then freq
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+AI tools (VS Code Copilot and Claude Code) were used in four distinct ways across the project phases:
+
+1. **UML and design review** — After drafting the initial class diagram, Copilot Chat was asked `"Based on my final implementation, what updates should I make to my initial UML diagram?"` with `#file:pawpal_system.py` attached. It caught that `Owner` and `Pet` were missing their method lists entirely, that `Task` was missing `frequency`, `scheduled_time`, and `due_date`, and that the `Scheduler` still listed a phantom `pet` attribute it no longer held. These were structural gaps that would have made the UML misleading as documentation.
+
+2. **Test planning** — Starting a fresh Copilot Chat session and asking `"What are the most important edge cases to test for a pet scheduler with sorting and recurring tasks?"` produced a prioritised list that included the same-pet conflict scenario and the double-complete chain — two cases that were not in the initial test plan but turned out to expose real behaviour worth pinning down.
+
+3. **Test code generation** — Copilot's Generate Tests action on `pawpal_system.py` produced a first draft of the AAA-structured test functions. The drafts needed editing (see section b), but they provided the scaffold so test-writing time was spent on logic rather than boilerplate.
+
+4. **Debugging and refactoring** — When the `detect_conflicts` expander logic in `app.py` produced a malformed time string, Copilot suggested the correct string-split approach in inline chat without needing to leave the editor.
+
+The prompts that worked best were **specific and scoped**: attaching the exact file with `#file:`, naming the method being tested, and asking for one thing at a time. Broad prompts like `"improve my scheduler"` produced generic suggestions that did not fit the existing design.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+**Suggestion rejected: adding a `pet` reference to `DailyPlan`**
+
+During test generation, Copilot drafted a test that called `plan.pet.name` to assert which pet's tasks were scheduled. This implied `DailyPlan` should hold a `pet` attribute — which the original skeleton had listed but the actual implementation removed, because an owner can have multiple pets and a single plan covers all of them. Accepting that suggestion would have meant either reverting a deliberate design decision or silently breaking the multi-pet case.
+
+The suggestion was rejected by reading `DailyPlan` in `pawpal_system.py` directly and confirming the field did not exist. The test was rewritten to check `plan.scheduled` task names instead of navigating through a pet reference. This also turned out to be a better test — it verified the scheduling outcome rather than an object relationship.
+
+**How AI suggestions were evaluated in general:** every generated function was run through `pytest` before being committed. If a test passed for the wrong reason (e.g., an assertion that was trivially true regardless of behaviour), it was rewritten. If a suggestion introduced a new import or helper that wasn't needed elsewhere, it was removed. The rule was: AI drafts the shape, human verifies the logic.
 
 ---
 
@@ -152,13 +186,26 @@ The scheduler uses a greedy algorithm: it sorts all tasks by priority (then freq
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+The final suite has 34 tests across seven sections. The five most important behaviours and the reason each one needed a test:
+
+1. **Priority ordering in `generate_plan`** — the scheduler's core promise is that HIGH tasks come before LOW ones. If sorting by `priority.value` regressed, nothing in the UI would show the bug; only a test that adds LOW before HIGH and checks the scheduled order would catch it.
+
+2. **Time-budget boundary (`duration == remaining`)** — the condition in `generate_plan` is `<=`, not `<`. An off-by-one error here would silently drop tasks that fit exactly, which is the worst kind of bug: no crash, just a missing task. The boundary test (`Walk 30 min + Feeding 30 min` in a 60-minute budget) pins this contract.
+
+3. **Daily recurrence date arithmetic** — `complete_task` uses `timedelta(days=1)`. A fixed reference date (`date(2026, 4, 1)`) is used so the test is not affected by when it runs. Without this, a bug in the `timedelta` calculation could go unnoticed until a real user's task was scheduled a day late.
+
+4. **Conflict detection — same-pet case** — `detect_conflicts` groups by `scheduled_time` across all pets. The same-pet test confirms it also catches two tasks on the same pet at the same time, not just cross-pet clashes. This is the less obvious path through the code.
+
+5. **`filter_by_pet` case insensitivity** — the `.lower()` comparison in `Scheduler.filter_by_pet` is easy to accidentally remove during refactoring. The test with `"biscuit"` matching `"Biscuit"` keeps that guarantee visible.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+**4 / 5** — all 34 tests pass, covering happy paths, boundary conditions, and the main edge cases. The missing star reflects one known gap: `detect_conflicts` only flags exact start-time matches. A 30-minute task at `07:00` that overlaps a task at `07:15` is not caught. This is a documented tradeoff (see Section 2b, Tradeoff 2), not an oversight in test coverage — but it means the scheduler can produce a plan with a real scheduling conflict that no test will flag.
+
+Edge cases to test next with more time:
+- **Duration overlap detection** — parse `scheduled_time` to minutes, add `duration_minutes`, and check for `(start, end)` interval intersections.
+- **Owner with multiple pets, same task name** — two pets can each have a task called `"Walk"`. `complete_task` on one should not touch the other.
+- **`generate_plan` across midnight** — tasks at `"23:30"` and `"00:15"` sort incorrectly under lexicographic comparison since `"00:15" < "23:30"`. No current test covers this.
 
 ---
 
@@ -166,12 +213,20 @@ The scheduler uses a greedy algorithm: it sorts all tasks by priority (then freq
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The part of this project I'm most satisfied with is the separation between the scheduling logic and the UI. Every algorithm — sorting, conflict detection, recurrence, plan generation — lives in `pawpal_system.py` and is independently testable. `app.py` only calls into that layer; it contains no scheduling logic of its own. This meant the 34-test suite could be written and run without Streamlit being installed, and the UI could be redesigned without touching the algorithms. That boundary was a deliberate design decision and it paid off at every later phase.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Two things stand out:
+
+1. **Conflict detection** should be upgraded from exact start-time matching to duration-aware interval overlap. The current implementation catches the most obvious user mistakes but silently misses back-to-back tasks that genuinely overlap. Switching to `(start_minutes, start_minutes + duration)` interval comparison is a contained change that would not affect any other method.
+
+2. **The Streamlit UI only supports one pet per session.** The setup form creates one owner and one pet, and there is no way to add a second pet through the UI even though `Owner.add_pet()` fully supports it in the backend. A future iteration would replace the single pet form with a multi-pet panel — a list of registered pets with an "Add another pet" button.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing I learned is that **AI tools are most useful when you already know what you want and are specific about it** — and most risky when you let them define the design for you.
+
+When I asked Copilot `"generate tests for this file"` with no further context, it produced functions that technically passed but tested the wrong things (like asserting object identity rather than behaviour). When I asked `"write a test that proves completing a daily task creates a new task due exactly one day later, using a fixed reference date"`, the result was immediately usable.
+
+The same principle applied to the UML and architecture decisions. AI suggested adding a `pet` field to `DailyPlan`, which matched the original skeleton but contradicted the multi-pet design that had already been implemented. Accepting that suggestion without reading the code would have introduced a bug. The lesson is: **AI accelerates execution but does not replace understanding**. Every suggestion needs to be evaluated against the design you are building, not the design the AI assumes you have.
