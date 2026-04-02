@@ -110,8 +110,27 @@ After reviewing the skeleton, four changes were made based on identified gaps:
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+**Tradeoff 1: greedy time-budget fill vs. optimal packing**
+
+The scheduler uses a greedy algorithm: it sorts all tasks by priority (then frequency urgency, then duration) and fills the owner's time budget in that order, stopping as soon as a task won't fit. It never backtracks or tries rearranging tasks to squeeze in a better combination.
+
+*Example of the problem:* Suppose 25 minutes remain and the next task needs 30 minutes. The scheduler skips it and stops — even if two lower-priority tasks totaling 20 minutes would have fit perfectly. A true optimal packing algorithm (like 0/1 knapsack) would find that combination, but it requires evaluating every possible subset of remaining tasks.
+
+*Why the greedy approach is reasonable here:* For a daily pet care app, pet owners generally want the most important tasks done first, not a mathematically optimal packing of their remaining minutes. A walk and medication being scheduled before grooming reflects real-world priority, even if it leaves some time unused. The greedy approach also runs instantly regardless of how many tasks are added, whereas knapsack solutions grow exponentially with the number of items. Simplicity and predictability matter more than squeezing out the last few minutes of a pet owner's day.
+
+*What this tradeoff costs:* Available time can be left unused when a cluster of small low-priority tasks would have fit after a large high-priority task was skipped. A future improvement could add a "fill remaining minutes" pass after the main greedy loop to schedule smaller pending tasks into leftover time.
+
+---
+
+**Tradeoff 2: exact time-slot matching vs. overlap detection**
+
+`detect_conflicts()` flags two tasks as conflicting only when their `scheduled_time` strings are **exactly equal** (e.g., both at `"07:00"`). It does not check whether one task's duration extends into the next task's start time.
+
+*Example of what gets missed:* A 30-minute walk starting at `07:00` runs until `07:30`. A feeding task at `07:15` genuinely overlaps with it — but `detect_conflicts()` reports no conflict because `"07:00" != "07:15"`.
+
+*Why exact matching is the right first step:* True overlap detection requires converting every `"HH:MM"` string to minutes-since-midnight, adding `duration_minutes`, and checking for range intersections across every pair of tasks — an O(n²) comparison. For a small daily task list (typically under 20 items) this is fast enough, but it is significantly more code to write, test, and explain. Exact matching catches the most common user mistake (accidentally setting two tasks to the same start time) with a simple, readable `defaultdict` grouping that is easy to verify at a glance.
+
+*What this tradeoff costs:* Back-to-back tasks where the first runs long enough to overlap the second are silently allowed. A future improvement would parse `scheduled_time` into `datetime` objects and compare `(start, start + duration)` intervals — a natural next step once the core scheduling logic is solid.
 
 ---
 

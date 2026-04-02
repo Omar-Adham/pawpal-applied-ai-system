@@ -1,4 +1,6 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from enum import Enum
 
 
@@ -10,12 +12,28 @@ class Priority(Enum):
 
 @dataclass
 class Task:
-    """A single pet care activity."""
+    """A single pet care activity.
+
+    Attributes:
+        name:             Human-readable label, e.g. "Morning Walk".
+        category:         Broad type — "walk", "feed", "meds", "grooming", "enrichment".
+        duration_minutes: How long the activity takes; used for time-budget fitting.
+        priority:         Priority.HIGH / MEDIUM / LOW — drives scheduling order.
+        frequency:        How often the task recurs: "daily", "weekly", or "as-needed".
+                          complete_task() uses this to calculate the next due_date.
+        scheduled_time:   "HH:MM" string for the time of day this task should start.
+                          Defaults to "09:00"; used by sort_by_time() and detect_conflicts().
+        due_date:         The calendar date this occurrence is due, set to today by default.
+                          complete_task() advances it by timedelta(days=1) or timedelta(weeks=1).
+        is_completed:     True once mark_complete() has been called for this occurrence.
+    """
     name: str
     category: str           # "walk", "feed", "meds", "grooming", "enrichment"
     duration_minutes: int
     priority: Priority
-    frequency: str = "daily"  # "daily", "weekly", "as-needed"
+    frequency: str = "daily"                          # "daily", "weekly", "as-needed"
+    scheduled_time: str = "09:00"                     # "HH:MM" — time of day
+    due_date: date = field(default_factory=date.today) # date this occurrence is due
     is_completed: bool = False
 
     def mark_complete(self) -> None:
@@ -23,10 +41,11 @@ class Task:
         self.is_completed = True
 
     def __repr__(self) -> str:
-        status = "✓" if self.is_completed else "○"
+        status = "[x]" if self.is_completed else "[ ]"
         return (
-            f"[{status}] {self.name} "
-            f"({self.duration_minutes}min, {self.priority.name}, {self.frequency})"
+            f"{status} {self.scheduled_time}  {self.name} "
+            f"({self.duration_minutes}min, {self.priority.name}, "
+            f"{self.frequency}, due {self.due_date})"
         )
 
 
@@ -147,12 +166,124 @@ class Scheduler:
                 return
         raise ValueError(f"No pet named '{pet_name}' found.")
 
-    def generate_plan(self) -> DailyPlan:
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks sorted ascending by their scheduled_time ("HH:MM") string.
+
+        Sorting "HH:MM" strings lexicographically works correctly because the
+        format has fixed-width zero-padded fields — "07:30" < "09:00" < "14:15".
+        Using a lambda as the key extracts the time string for each Task object
+        so sorted() can compare them.
         """
-        Build a DailyPlan by:
-        1. Collecting all tasks from all pets via the Owner.
-        2. Sorting by priority (HIGH first), then duration (shorter first as tiebreaker).
-        3. Greedily fitting tasks into the owner's available time budget.
+        return sorted(tasks, key=lambda t: t.scheduled_time)
+
+    def filter_by_status(self, tasks: list[Task], completed: bool) -> list[Task]:
+        """Return only tasks whose is_completed flag matches *completed*.
+
+        Pass completed=False to get the pending work list;
+        pass completed=True to review what is already done.
+        """
+        return [t for t in tasks if t.is_completed == completed]
+
+    def filter_by_pet(self, pet_name: str) -> list[Task]:
+        """Return all tasks belonging to the pet with the given name.
+
+        Raises ValueError if no pet with that name is registered under this owner.
+        """
+        for pet in self.owner.pets:
+            if pet.name.lower() == pet_name.lower():
+                return list(pet.tasks)
+        raise ValueError(f"No pet named '{pet_name}' found.")
+
+    def complete_task(self, pet_name: str, task_name: str) -> "Task | None":
+        """Mark a task complete and automatically queue the next occurrence.
+
+        For recurring tasks, timedelta shifts the due_date forward:
+          - "daily"     → due_date + timedelta(days=1)
+          - "weekly"    → due_date + timedelta(weeks=1)
+          - "as-needed" → no new task; returns None
+
+        The completed task is removed from the pet's list and replaced with a
+        fresh instance so the task name stays unique and the list only ever
+        holds one entry per task — either pending or the next scheduled copy.
+
+        Returns the newly-created Task if one was queued, else None.
+        """
+        # Locate the pet — next() returns the first match or None
+        target_pet = next(
+            (p for p in self.owner.pets if p.name.lower() == pet_name.lower()), None
+        )
+        if target_pet is None:
+            raise ValueError(f"No pet named '{pet_name}' found.")
+
+        # Locate the task on that pet
+        target_task = next(
+            (t for t in target_pet.tasks if t.name == task_name), None
+        )
+        if target_task is None:
+            raise ValueError(f"No task named '{task_name}' found for {pet_name}.")
+
+        target_task.mark_complete()
+
+        # Determine next due_date using timedelta
+        if target_task.frequency == "daily":
+            next_due = target_task.due_date + timedelta(days=1)
+        elif target_task.frequency == "weekly":
+            next_due = target_task.due_date + timedelta(weeks=1)
+        else:
+            # "as-needed" tasks are not automatically rescheduled
+            return None
+
+        # Replace the completed task with a fresh pending copy for the next cycle
+        target_pet.remove_task(task_name)
+        next_task = Task(
+            name=target_task.name,
+            category=target_task.category,
+            duration_minutes=target_task.duration_minutes,
+            priority=target_task.priority,
+            frequency=target_task.frequency,
+            scheduled_time=target_task.scheduled_time,
+            due_date=next_due,
+        )
+        target_pet.add_task(next_task)
+        return next_task
+
+    def detect_conflicts(self) -> list[str]:
+        """Return warning strings for every scheduled_time slot claimed by more than one task.
+
+        Strategy: group all tasks across every pet by their scheduled_time using a
+        defaultdict(list). Any slot with two or more entries is a conflict.
+        Returns an empty list when the schedule is clean.
+
+        This is lightweight — it never raises an exception, so callers can print
+        the warnings and keep running rather than crashing on a bad schedule.
+        """
+        slots: dict[str, list[str]] = defaultdict(list)
+        for pet in self.owner.pets:
+            for task in pet.tasks:
+                slots[task.scheduled_time].append(f"{pet.name}:{task.name}")
+
+        warnings = []
+        for time_slot, entries in slots.items():
+            if len(entries) > 1:
+                clashes = ", ".join(entries)
+                warnings.append(f"WARNING - conflict at {time_slot}: {clashes}")
+        return warnings
+
+    def generate_plan(self) -> DailyPlan:
+        """Build and return a DailyPlan for the owner's available time today.
+
+        Algorithm (greedy priority-first):
+          1. Collect every task across all pets via Owner.get_all_tasks().
+          2. Sort by (priority.value, duration_minutes) so HIGH-priority tasks
+             are scheduled first; shorter tasks break ties within the same priority.
+          3. Walk the sorted list and fit each task into the remaining time budget.
+             Already-completed tasks are recorded as skipped with reason "already completed".
+             Tasks that exceed the remaining budget are skipped with a reason explaining
+             how many minutes were left vs. how many were needed.
+
+        The greedy approach is O(n log n) and gives predictable, human-readable results,
+        at the cost of occasionally leaving unused minutes when a large high-priority task
+        does not fit but smaller lower-priority tasks would have. See reflection.md Tradeoff 1.
         """
         all_tasks = self.get_all_tasks()
         sorted_tasks = sorted(
