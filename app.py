@@ -3,7 +3,15 @@ from pawpal_system import Owner, Pet, Task, Scheduler, Priority
 from rag import generate_advice
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
-st.title("🐾 PawPal+")
+
+col_title, col_reset = st.columns([5, 1])
+with col_title:
+    st.title("🐾 PawPal+")
+with col_reset:
+    st.write("")
+    if st.button("Start Over", type="secondary"):
+        st.session_state.clear()
+        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Persistent state vault — initialised once, survives every rerun
@@ -12,6 +20,12 @@ if "owner" not in st.session_state:
     st.session_state.owner = None
 if "current_pet" not in st.session_state:
     st.session_state.current_pet = None
+if "plan" not in st.session_state:
+    st.session_state.plan = None
+if "pet_lookup" not in st.session_state:
+    st.session_state.pet_lookup = {}
+if "advice" not in st.session_state:
+    st.session_state.advice = None
 
 # ---------------------------------------------------------------------------
 # Section 1 — Owner + Pet setup
@@ -34,6 +48,8 @@ if submitted:
     owner.add_pet(pet)
     st.session_state.owner = owner
     st.session_state.current_pet = pet
+    st.session_state.plan = None
+    st.session_state.advice = None
     st.success(f"Saved! Owner: {owner.name} | Pet: {pet.name} ({pet.species})")
 
 # ---------------------------------------------------------------------------
@@ -57,9 +73,12 @@ else:
         frequency = st.selectbox("Frequency", ["daily", "weekly", "as-needed"])
     with col3:
         scheduled_time = st.text_input("Scheduled time (HH:MM)", value="09:00")
+        category = st.selectbox(
+            "Category",
+            ["walk", "feed", "meds", "grooming", "enrichment", "general"],
+        )
 
     if st.button("Add task"):
-        # Basic HH:MM format guard
         parts = scheduled_time.split(":")
         time_valid = (
             len(parts) == 2
@@ -68,12 +87,14 @@ else:
             and 0 <= int(parts[0]) <= 23
             and 0 <= int(parts[1]) <= 59
         )
-        if not time_valid:
+        if not task_name.strip():
+            st.error("Task name cannot be empty.")
+        elif not time_valid:
             st.error("Scheduled time must be in HH:MM format, e.g. 07:30.")
         else:
             task = Task(
                 name=task_name,
-                category="general",
+                category=category,
                 duration_minutes=int(duration),
                 priority=Priority[priority_str],
                 frequency=frequency,
@@ -81,11 +102,12 @@ else:
             )
             try:
                 pet.add_task(task)
+                st.session_state.plan = None
+                st.session_state.advice = None
                 st.success(f"Added: {task_name} at {scheduled_time}")
             except ValueError as e:
                 st.error(str(e))
 
-    # Show task list sorted chronologically
     if pet.tasks:
         scheduler = Scheduler(st.session_state.owner)
         sorted_tasks = scheduler.sort_by_time(pet.tasks)
@@ -95,6 +117,7 @@ else:
             {
                 "Time": t.scheduled_time,
                 "Task": t.name,
+                "Category": t.category,
                 "Duration (min)": t.duration_minutes,
                 "Priority": t.priority.name,
                 "Frequency": t.frequency,
@@ -128,8 +151,6 @@ else:
             "Edit a task's scheduled time to resolve each conflict."
         )
         for warning in conflicts:
-            # Parse "WARNING - conflict at HH:MM: Pet:Task, Pet:Task"
-            # and display each one as an expandable warning block
             time_part = warning.split("conflict at ")[-1].split(":")[0] + \
                         ":" + warning.split("conflict at ")[-1].split(":")[1].split(",")[0].strip()
             with st.expander(f"Conflict at {warning.split('conflict at ')[-1].split(':')[0]}:{warning.split('conflict at ')[-1].split(':')[1].split(',')[0].strip()}"):
@@ -157,7 +178,23 @@ else:
         scheduler = Scheduler(owner)
         plan = scheduler.generate_plan()
 
-        # Time budget header
+        pet_lookup = {}
+        for p in owner.pets:
+            for t in p.tasks:
+                pet_lookup[t.name] = p.name
+
+        st.session_state.plan = plan
+        st.session_state.pet_lookup = pet_lookup
+
+        with st.spinner("Fetching personalised advice..."):
+            st.session_state.advice = generate_advice(plan, owner)
+
+    plan = st.session_state.plan
+    if plan:
+        owner = st.session_state.owner
+        pet_lookup = st.session_state.pet_lookup
+        scheduler = Scheduler(owner)
+
         pct = int(plan.total_time_used / owner.available_minutes_per_day * 100) \
               if owner.available_minutes_per_day else 0
         st.markdown(
@@ -166,17 +203,9 @@ else:
         )
         st.progress(min(pct, 100))
 
-        # Scheduled tasks — sorted by time, shown in a table
         if plan.scheduled:
             st.markdown("#### Scheduled")
             sorted_scheduled = scheduler.sort_by_time(plan.scheduled)
-
-            # Build pet-name lookup once
-            pet_lookup = {}
-            for p in owner.pets:
-                for t in p.tasks:
-                    pet_lookup[t.name] = p.name
-
             rows = [
                 {
                     "Time": t.scheduled_time,
@@ -191,7 +220,6 @@ else:
             st.table(rows)
             st.success(f"{len(plan.scheduled)} task(s) fit within your available time.")
 
-        # Skipped tasks — with plain-English reasons
         if plan.skipped:
             st.markdown("#### Skipped")
             for task in plan.skipped:
@@ -201,9 +229,166 @@ else:
                 else:
                     st.warning(f"**{task.name}** — {reason}")
 
-        # AI advice note — RAG layer
         st.divider()
         st.markdown("#### 🐾 AI Care Advice")
-        with st.spinner("Fetching personalised advice..."):
-            advice = generate_advice(plan, owner)
-        st.success(advice)
+        if st.session_state.advice:
+            st.success(st.session_state.advice)
+
+# ---------------------------------------------------------------------------
+# Section 5 — Edit schedule
+# ---------------------------------------------------------------------------
+plan = st.session_state.plan
+_skippable_check = [t for t in plan.skipped if plan.reasoning.get(t.name) != "already completed"] if plan else []
+if plan and (plan.scheduled or _skippable_check):
+    st.divider()
+    st.subheader("5. Edit Schedule")
+
+    owner = st.session_state.owner
+    scheduler = Scheduler(owner)
+
+    # Rebuild pet_lookup so tasks added after plan generation show the correct pet name
+    pet_lookup = {}
+    for p in owner.pets:
+        for t in p.tasks:
+            pet_lookup[t.name] = p.name
+    st.session_state.pet_lookup = pet_lookup
+
+    # --- Scheduled tasks ---
+    if plan.scheduled:
+        st.markdown("**Scheduled tasks** — uncheck Keep to remove from today's plan:")
+        sorted_scheduled = scheduler.sort_by_time(plan.scheduled)
+        scheduled_rows = [
+            {
+                "Keep": True,
+                "Time": t.scheduled_time,
+                "Pet": pet_lookup.get(t.name, "—"),
+                "Task": t.name,
+                "Duration (min)": t.duration_minutes,
+                "Priority": t.priority.name,
+            }
+            for t in sorted_scheduled
+        ]
+        edited_scheduled = st.data_editor(
+            scheduled_rows,
+            key="edit_scheduled",
+            column_config={
+                "Keep": st.column_config.CheckboxColumn("Keep", default=True, width="small"),
+                "Time": st.column_config.TextColumn("Time (HH:MM)", width="small"),
+                "Pet": st.column_config.TextColumn("Pet", disabled=True, width="small"),
+                "Task": st.column_config.TextColumn("Task", disabled=True),
+                "Duration (min)": st.column_config.NumberColumn(
+                    "Duration (min)", min_value=1, max_value=480, width="small"
+                ),
+                "Priority": st.column_config.SelectboxColumn(
+                    "Priority", options=["HIGH", "MEDIUM", "LOW"], width="small"
+                ),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+        )
+    else:
+        edited_scheduled = []
+
+    # --- Skipped tasks ---
+    skippable = [t for t in plan.skipped if plan.reasoning.get(t.name) != "already completed"]
+    if skippable:
+        st.markdown("**Skipped tasks** — check Add to put a task back in today's plan:")
+        skipped_rows = [
+            {
+                "Add": False,
+                "Time": t.scheduled_time,
+                "Pet": pet_lookup.get(t.name, "—"),
+                "Task": t.name,
+                "Duration (min)": t.duration_minutes,
+                "Priority": t.priority.name,
+                "Reason": plan.reasoning.get(t.name, ""),
+            }
+            for t in skippable
+        ]
+        edited_skipped = st.data_editor(
+            skipped_rows,
+            key="edit_skipped",
+            column_config={
+                "Add": st.column_config.CheckboxColumn("Add", default=False, width="small"),
+                "Time": st.column_config.TextColumn("Time (HH:MM)", width="small"),
+                "Pet": st.column_config.TextColumn("Pet", disabled=True, width="small"),
+                "Task": st.column_config.TextColumn("Task", disabled=True),
+                "Duration (min)": st.column_config.NumberColumn(
+                    "Duration (min)", min_value=1, max_value=480, width="small"
+                ),
+                "Priority": st.column_config.SelectboxColumn(
+                    "Priority", options=["HIGH", "MEDIUM", "LOW"], width="small"
+                ),
+                "Reason": st.column_config.TextColumn("Reason", disabled=True),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+        )
+    else:
+        edited_skipped = []
+
+    if st.button("Apply edits"):
+        def to_records(data):
+            return data.to_dict("records") if hasattr(data, "to_dict") else data
+
+        scheduled_task_map = {t.name: t for t in plan.scheduled}
+        skipped_task_map = {t.name: t for t in plan.skipped}
+        errors = []
+        new_scheduled = []
+        new_skipped = list(plan.skipped)  # start with full skipped list; we'll patch it
+
+        def validate_time(time_str, task_name):
+            parts = str(time_str).split(":")
+            if not (len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit()
+                    and 0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
+                errors.append(f"**{task_name}**: invalid time '{time_str}' — use HH:MM format.")
+                return False
+            return True
+
+        # Process scheduled table
+        for row in to_records(edited_scheduled):
+            task = scheduled_task_map[row["Task"]]
+            if not validate_time(row["Time"], task.name):
+                continue
+            task.scheduled_time = row["Time"]
+            task.duration_minutes = int(row["Duration (min)"])
+            task.priority = Priority[row["Priority"]]
+            if row["Keep"]:
+                new_scheduled.append(task)
+            else:
+                plan.reasoning[task.name] = "removed from schedule"
+                if task not in new_skipped:
+                    new_skipped.append(task)
+
+        # Process skipped table — add checked tasks back to schedule
+        for row in to_records(edited_skipped):
+            if not row["Add"]:
+                continue
+            task = skipped_task_map[row["Task"]]
+            if not validate_time(row["Time"], task.name):
+                continue
+            task.scheduled_time = row["Time"]
+            task.duration_minutes = int(row["Duration (min)"])
+            task.priority = Priority[row["Priority"]]
+            plan.reasoning.pop(task.name, None)
+            new_scheduled.append(task)
+            new_skipped = [t for t in new_skipped if t.name != task.name]
+
+        if errors:
+            for msg in errors:
+                st.error(msg)
+        elif not new_scheduled:
+            st.warning("This would remove all tasks from your schedule. Keep at least one task, or add a skipped task back.")
+        else:
+            plan.scheduled = new_scheduled
+            plan.skipped = new_skipped
+            plan.total_time_used = sum(t.duration_minutes for t in new_scheduled)
+            st.session_state.plan = plan
+
+            with st.spinner("Updating AI advice..."):
+                st.session_state.advice = generate_advice(plan, owner)
+
+            st.success("Schedule updated.")
+            st.rerun()

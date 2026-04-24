@@ -29,8 +29,15 @@ CATEGORY_TO_KB_KEY = {
 
 
 def load_knowledge_base() -> dict:
-    with open(KB_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(KB_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.error("Knowledge base file not found at %s", KB_PATH)
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error("Knowledge base file is corrupt: %s", e)
+        return {}
 
 
 def get_age_group(species: str, age: int) -> str:
@@ -52,7 +59,12 @@ def get_age_group(species: str, age: int) -> str:
 def retrieve_facts(species: str, age: int, task_categories: list[str]) -> list[str]:
     """Return relevant care facts from the KB for the given pet and task categories."""
     kb = load_knowledge_base()
+    if not kb:
+        return []
     species_key = species.lower() if species.lower() in kb else "other"
+    if species_key not in kb:
+        logger.warning("Species '%s' not found in KB and no 'other' fallback.", species)
+        return []
     species_data = kb[species_key]
     age_group = get_age_group(species_key, age)
 
@@ -151,6 +163,12 @@ def generate_advice(plan: DailyPlan, owner: Owner) -> str:
         logger.warning("GROQ_API_KEY not set — skipping AI advice.")
         return "AI advice unavailable: GROQ_API_KEY not configured."
 
+    if not owner.pets:
+        return "No pets registered — add a pet to receive AI care advice."
+
+    if not plan.scheduled:
+        return "No tasks were scheduled — add tasks or adjust your available time to get AI advice."
+
     client = Groq(api_key=api_key)
 
     all_advice = []
@@ -175,4 +193,4 @@ def generate_advice(plan: DailyPlan, owner: Owner) -> str:
         advice = _call_with_retry(client, prompt, pet.name)
         all_advice.append(f"**{pet.name}:** {advice}")
 
-    return "\n\n".join(all_advice)
+    return "\n\n".join(all_advice) if all_advice else "No advice generated — check that your pet's species and task categories are covered in the knowledge base."
