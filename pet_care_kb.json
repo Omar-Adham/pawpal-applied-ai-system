@@ -1,0 +1,84 @@
+{
+  "dog": {
+    "exercise": {
+      "puppy": "Puppies (under 1 year) need 5 minutes of exercise per month of age, twice a day. Over-exercising can damage developing joints.",
+      "adult": "Adult dogs need at least 30-60 minutes of exercise daily. High-energy breeds like Huskies and Border Collies need 2+ hours.",
+      "senior": "Senior dogs (7+ years) still need daily walks but shorter ones — 20-30 minutes at a gentle pace. Watch for signs of fatigue or joint pain."
+    },
+    "feeding": {
+      "puppy": "Puppies should be fed 3-4 times a day using age-appropriate food. Avoid adult food — it lacks the nutrients growing dogs need.",
+      "adult": "Adult dogs should be fed twice a day at consistent times. Avoid feeding immediately before or after vigorous exercise to reduce bloat risk.",
+      "senior": "Senior dogs may need fewer calories but more joint-supporting nutrients. Split meals into smaller, more frequent portions if digestion is a concern."
+    },
+    "grooming": {
+      "general": "Most dogs need brushing 2-3 times a week. Long-haired breeds need daily brushing. Bathe every 4-6 weeks unless the dog gets dirty.",
+      "nails": "Trim nails every 3-4 weeks. Overgrown nails cause pain and affect posture."
+    },
+    "health": {
+      "general": "Dogs should have an annual vet check-up. Keep vaccinations, flea, tick, and heartworm treatments up to date.",
+      "medications": "Administer medications at the same time each day with or without food as directed. Never skip doses for antibiotics or heartworm prevention.",
+      "hydration": "Dogs need approximately 30ml of water per kg of body weight daily. Always provide fresh water, especially after exercise."
+    },
+    "enrichment": {
+      "general": "Mental stimulation is as important as physical exercise. Puzzle feeders, scent games, and training sessions prevent boredom and destructive behaviour.",
+      "social": "Dogs are social animals. Aim for daily interaction, play, and if possible, socialization with other dogs."
+    }
+  },
+  "cat": {
+    "exercise": {
+      "kitten": "Kittens are naturally active and need several short play sessions a day — at least 2-3 sessions of 10-15 minutes using interactive toys.",
+      "adult": "Adult cats need 20-30 minutes of active play daily. Use wand toys or laser pointers to simulate hunting behaviour.",
+      "senior": "Senior cats (10+ years) are less active but still need gentle play to maintain muscle tone and mental health."
+    },
+    "feeding": {
+      "general": "Cats should be fed twice a day at consistent times. Avoid free-feeding dry food as it contributes to obesity.",
+      "hydration": "Cats have a low thirst drive and are prone to dehydration. Wet food provides extra moisture. Always keep fresh water available — a fountain encourages drinking.",
+      "kitten": "Kittens need calorie-dense kitten food fed 3-4 times daily to support rapid growth."
+    },
+    "grooming": {
+      "short_hair": "Short-haired cats groom themselves but benefit from brushing once a week to reduce hairballs.",
+      "long_hair": "Long-haired cats need daily brushing to prevent mats and tangles. Check behind the ears and under the legs.",
+      "general": "Trim nails every 2-3 weeks. Check ears weekly for wax build-up or signs of infection."
+    },
+    "health": {
+      "general": "Cats need annual vet check-ups. Keep vaccinations and flea treatments current.",
+      "medications": "For cats with hyperthyroidism or other chronic conditions, medication must be given at the same time daily. Use a pill pocket or mix with a small amount of wet food if the cat resists.",
+      "dental": "Dental disease is common in cats. Brushing teeth 2-3 times a week or providing dental treats reduces tartar build-up."
+    },
+    "enrichment": {
+      "general": "Cats need vertical space (cat trees, shelves) and hiding spots to feel secure. Rotate toys weekly to maintain novelty.",
+      "indoor": "Indoor cats need more deliberate enrichment — window perches, bird feeders outside windows, and puzzle feeders prevent boredom."
+    }
+  },
+  "rabbit": {
+    "exercise": {
+      "general": "Rabbits need at least 3-4 hours of free-roaming exercise outside their enclosure daily. A cramped cage without exercise time causes physical and psychological harm.",
+      "adult": "Adult rabbits are most active at dawn and dusk. Schedule exercise and play sessions around these natural activity windows."
+    },
+    "feeding": {
+      "general": "80% of a rabbit's diet should be fresh hay (timothy or orchard grass). Fresh leafy greens daily and a small amount of pellets. Avoid sugary treats and fruit — these cause gut problems.",
+      "hydration": "Fresh water must be available at all times. A bowl is preferable to a bottle as it is more natural and easier to drink from.",
+      "warning": "Never feed iceberg lettuce, potatoes, or anything from the onion family — these are toxic to rabbits."
+    },
+    "grooming": {
+      "general": "Brush rabbits 2-3 times a week; daily during moulting season. Rabbits groom themselves but cannot vomit hairballs — ingested fur causes dangerous blockages.",
+      "nails": "Trim nails every 6-8 weeks. Overgrown nails curl and cause pain when walking."
+    },
+    "health": {
+      "general": "Rabbits hide illness well. A sudden change in eating, droppings, or behaviour is a red flag — contact a vet promptly.",
+      "medications": "Rabbits are sensitive to many antibiotics. Never give a rabbit medication prescribed for another species. Administer rabbit-safe medications at consistent times.",
+      "gi_stasis": "GI stasis (gut slowdown) is life-threatening. If a rabbit stops eating or producing droppings for more than 12 hours, seek emergency vet care immediately."
+    },
+    "enrichment": {
+      "general": "Rabbits are intelligent and social. Provide tunnels, cardboard boxes, and chew toys. Bored rabbits become destructive and depressed.",
+      "social": "Rabbits are happiest in bonded pairs. A solo rabbit needs significantly more human interaction and enrichment time to stay mentally healthy."
+    }
+  },
+  "other": {
+    "general": {
+      "general": "Ensure your pet has fresh water, appropriate food for its species, and daily interaction. Research species-specific needs — care requirements vary widely.",
+      "health": "Schedule annual vet check-ups. Keep a log of any changes in behaviour, appetite, or activity level to share with your vet.",
+      "enrichment": "All pets benefit from environmental enrichment suited to their natural behaviours. Provide safe opportunities to explore, forage, or play."
+    }
+  }
+}

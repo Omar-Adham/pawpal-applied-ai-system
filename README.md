@@ -1,161 +1,271 @@
-# PawPal+ (Module 2 Project)
+# PawPal+ Applied AI System
 
-**PawPal+** is a Python-backed Streamlit app that helps busy pet owners build a realistic daily care plan for their pets. The owner enters how much time they have, adds tasks for each pet, and the scheduler prioritises, sorts, and fits those tasks into a time-budgeted plan — flagging conflicts and automatically rescheduling recurring tasks.
-
-## Features
-
-### Priority-based daily schedule
-The scheduler uses a **greedy priority-first algorithm** to build each day's plan. Tasks are sorted by `Priority` (HIGH → MEDIUM → LOW) and, within the same priority, by duration (shortest first to maximise fit). Each task is accepted or skipped based on the owner's remaining time budget, and every decision is recorded with a plain-English reason so the owner always understands why a task was left out.
-
-### Chronological time sorting
-`Scheduler.sort_by_time()` orders any task list by `scheduled_time` using lexicographic comparison on zero-padded `"HH:MM"` strings — no date-time parsing required. Every view in the app (task list, generated schedule) displays tasks in the order the owner will actually do them.
-
-### Conflict warnings
-`Scheduler.detect_conflicts()` scans all pets' tasks and flags any `scheduled_time` slot claimed by more than one task. It uses a `defaultdict(list)` to group tasks by start time and returns a list of warning strings — one per conflicting slot — without raising exceptions, so the UI can display warnings and keep running. The app surfaces these as `st.error` banners with expandable detail and a tip on how to fix each conflict.
-
-### Automatic daily recurrence
-`Scheduler.complete_task()` marks a task done and immediately queues the next occurrence using Python's `timedelta`:
-
-| Frequency | Next due date |
-|-----------|--------------|
-| `"daily"` | `due_date + 1 day` |
-| `"weekly"` | `due_date + 7 days` |
-| `"as-needed"` | not rescheduled — stays in the list as a completed record |
-
-The completed task is removed and replaced with a fresh pending copy so the task name stays unique and all filters remain consistent.
-
-### Per-pet and status filtering
-Two read-only filter methods let the UI slice the task list without mutating it:
-
-- `filter_by_pet(pet_name)` — returns only that pet's tasks (case-insensitive match)
-- `filter_by_status(tasks, completed)` — returns pending (`False`) or completed (`True`) tasks
-
-### Duplicate and integrity guards
-`Pet.add_task()` rejects a task whose name already exists on that pet. `Owner.add_pet()` rejects a pet whose name is already registered. Both raise `ValueError` with a descriptive message that the UI catches and displays via `st.error`.
+A pet care scheduling assistant that combines rule-based planning with
+Retrieval-Augmented Generation (RAG) to give owners personalised, breed-aware
+advice alongside their daily schedule.
 
 ---
 
-## 📸 Demo
+## Original Project
 
-<a href="/course_images/ai110/pawpal_screenshot01.png" target="_blank"><img src='/course_images/ai110/pawpal_screenshot01.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+**PawPal+** was built in Modules 1–3 of AI 110 as a pure Python / Streamlit
+scheduling app. Its original goals were to help busy pet owners track care
+tasks, fit them into a daily time budget using a priority-first greedy
+algorithm, detect scheduling conflicts, and automatically reschedule recurring
+tasks. It had no AI layer — every decision was deterministic and rule-based.
 
-<a href="/course_images/ai110/pawpal_screenshot02.png" target="_blank"><img src='/course_images/ai110/pawpal_screenshot02.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
-
-<a href="/course_images/ai110/pawpal_screenshot03.png" target="_blank"><img src='/course_images/ai110/pawpal_screenshot03.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+This repository extends that foundation by adding a RAG pipeline so the
+generated schedule is accompanied by care advice grounded in a pet-specific
+knowledge base rather than generic language-model responses.
 
 ---
 
-## Scenario
+## System Diagram
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+![System Diagram](assests/system_diagram.png)
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+---
 
-## Architecture
+## Architecture Overview
 
-The scheduling logic lives entirely in [`pawpal_system.py`](pawpal_system.py). The Streamlit UI in [`app.py`](app.py) calls into it — it contains no scheduling logic of its own. The class structure is documented in [`uml_final.png`](uml_final.png) and [`reflection.md`](reflection.md).
+The system has three layers that run in sequence each time the owner generates
+a schedule:
 
-```
-Owner  1 ──*  Pet  1 ──*  Task  ──►  Priority (enum)
-  ▲                               
-  │  coordinates                  
-Scheduler  ──(produces)──►  DailyPlan
-```
+1. **Scheduler** (`pawpal_system.py`) — collects every task across all pets,
+   sorts by priority then duration, and fits tasks into the owner's time budget.
+   It also detects time-slot conflicts and handles recurring task rescheduling.
+   This layer is entirely deterministic and covered by 34 automated tests.
 
-## Smarter Scheduling
+2. **RAG pipeline** (`rag.py`) — after the plan is built, the Retriever
+   queries `pet_care_kb.json` using the pet's species, age, and task categories
+   as search keys. The retrieved facts are passed to Claude alongside the
+   generated plan. Claude returns a short, grounded advice note — not a generic
+   response, but one anchored to the specific facts that were looked up.
 
-Phase 3 extended the core `Scheduler` class in `pawpal_system.py` with four algorithmic improvements beyond the original priority-based greedy fill.
+3. **Streamlit UI** (`app.py`) — the owner interacts with both layers through
+   a single web interface: setup → add tasks → conflict check → generate
+   schedule + AI advice note.
 
-### Sort by time
+Human review happens at two points: when the owner reads the schedule and
+decides whether to follow it, and when the owner reads the AI note and judges
+whether the advice applies to their pet.
 
-`Scheduler.sort_by_time(tasks)` orders any list of tasks chronologically using
-Python's `sorted()` with a lambda key: `key=lambda t: t.scheduled_time`.
-Because `scheduled_time` is stored as a zero-padded `"HH:MM"` string,
-lexicographic comparison gives the correct time order with no extra parsing.
+---
 
-### Filter by pet and status
+## Setup Instructions
 
-Two filter methods make it easy to slice the task list:
+### Prerequisites
 
-- `filter_by_pet(pet_name)` — returns only the tasks belonging to a named pet,
-  enabling per-pet schedule views in the UI.
-- `filter_by_status(tasks, completed)` — returns pending tasks (`completed=False`)
-  or already-done tasks (`completed=True`), driving the daily checklist view.
+- Python 3.10 or higher
+- An Anthropic API key (for the RAG / Claude layer)
 
-### Recurring task automation
-
-`Scheduler.complete_task(pet_name, task_name)` marks a task done and
-automatically queues the next occurrence using Python's `timedelta`:
-
-| Frequency | Next due date |
-|---|---|
-| `"daily"` | `due_date + timedelta(days=1)` |
-| `"weekly"` | `due_date + timedelta(weeks=1)` |
-| `"as-needed"` | not rescheduled — returns `None` |
-
-The completed task is removed and replaced with a fresh pending copy so the
-task name stays unique and all filters keep working without special cases.
-
-### Conflict detection
-
-`Scheduler.detect_conflicts()` scans every pet's tasks and reports any
-`scheduled_time` slot claimed by more than one task. It uses a
-`defaultdict(list)` to group tasks by start time, then returns a plain list
-of warning strings — never raising an exception — so the caller can display
-warnings and keep running. An empty list means the schedule is clean.
-
-> **Current limitation:** conflicts are detected by exact start-time match only.
-> A 30-minute task starting at `07:00` that bleeds into a task at `07:15`
-> will not be flagged. See `reflection.md` Tradeoff 2 for details.
-
-## Testing PawPal+
-
-### Run the test suite
+### Steps
 
 ```bash
+# 1. Clone the repo
+git clone <your-repo-url>
+cd pawpal-applied-ai-system
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+# macOS / Linux:
+source .venv/bin/activate
+# Windows:
+.venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Add your API key
+# Create a .env file in the project root:
+echo ANTHROPIC_API_KEY=your-key-here > .env
+
+# 5. Run the app
+streamlit run app.py
+
+# 6. (Optional) Run the terminal demo — no browser needed
+python main.py
+
+# 7. (Optional) Run the test suite
 python -m pytest tests/test_pawpal.py -v
 ```
 
-### What the tests cover
+---
+
+## Sample Interactions
+
+### 1 — Conflict detected before scheduling
+
+**Input:** Two tasks assigned the same start time.
+
+```
+Pet: Biscuit (Dog)   Task: Morning Walk    07:00  30 min  HIGH
+Pet: Luna   (Cat)    Task: Thyroid Meds    07:00   5 min  HIGH
+```
+
+**Output (conflict check):**
+
+```
+WARNING — conflict at 07:00: Biscuit:Morning Walk, Luna:Thyroid Meds
+Tip: edit one task's scheduled time to resolve the conflict.
+```
+
+---
+
+### 2 — Daily schedule generated with skipped task
+
+**Input:** Owner has 90 minutes available.
+
+```
+Biscuit — Morning Walk     30 min  HIGH    07:00  daily
+Biscuit — Breakfast        10 min  HIGH    08:00  daily
+Biscuit — Fetch Session    20 min  MEDIUM  15:00  weekly
+Luna    — Thyroid Meds      5 min  HIGH    07:15  daily
+Luna    — Dinner           10 min  HIGH    08:00  daily
+Luna    — Brush Coat       15 min  LOW     18:00  weekly
+```
+
+**Output (generated plan — 75 / 90 min used):**
+
+```
+07:00  [Biscuit]  Morning Walk          30 min  HIGH
+07:15  [   Luna]  Thyroid Meds           5 min  HIGH
+08:00  [Biscuit]  Breakfast             10 min  HIGH
+08:00  [   Luna]  Dinner                10 min  HIGH
+15:00  [Biscuit]  Fetch Session         20 min  MEDIUM
+
+SKIPPED:
+  Brush Coat — not enough time (15 min left, needs 15 min... wait, fits)
+```
+
+> Note: exact skip reasoning depends on task order at runtime.
+
+---
+
+### 3 — Recurring task completed and rescheduled
+
+**Input:** Mark Luna's Thyroid Meds as done on 2026-04-24.
+
+**Output:**
+
+```
+Completed. Next occurrence scheduled for 2026-04-25 at 07:15.
+```
+
+The completed task is removed and replaced with a fresh pending copy — the
+task name stays unique and all filters keep working.
+
+---
+
+> **RAG sample interactions** (AI advice note grounded in retrieved care facts)
+> will be added here once the knowledge base and retriever are integrated.
+
+---
+
+## Design Decisions
+
+### Greedy scheduling over optimal packing
+
+The scheduler sorts tasks by priority then duration and fills the time budget
+in one pass — it never backtracks. A true 0/1 knapsack would find the
+mathematically optimal set of tasks, but it grows exponentially with task
+count and produces results that are harder for an owner to predict. The greedy
+approach runs instantly, always schedules the most important tasks first, and
+produces a plan the owner can reason about. The cost is occasional unused
+minutes when a large high-priority task is skipped but smaller lower-priority
+tasks would have fit.
+
+### Exact time-slot conflict detection
+
+`detect_conflicts()` flags tasks only when their `scheduled_time` strings are
+identical. It does not check whether one task's duration bleeds into the next
+task's start time. This catches the most common mistake (two tasks accidentally
+set to the same time) with a simple `defaultdict` grouping that is easy to
+read and test. Duration-aware interval overlap detection is a planned
+improvement — it requires parsing times to minutes and comparing `(start,
+start + duration)` ranges across every task pair.
+
+### RAG over fine-tuning
+
+A fine-tuned model would require labelled training data, a training run, and a
+separate model endpoint. RAG achieves grounded, breed-specific responses by
+retrieving facts from a local JSON file at query time — no training required,
+the knowledge base is easy to update, and the retrieval step is inspectable
+and loggable. The trade-off is that the quality of the AI note depends on the
+quality and coverage of `pet_care_kb.json`.
+
+### Separation of logic and UI
+
+All scheduling algorithms live in `pawpal_system.py`. `app.py` contains no
+scheduling logic — it only calls into the system layer. This means the 34-test
+suite runs without Streamlit installed, and the UI can be redesigned without
+touching the algorithms.
+
+---
+
+## Testing Summary
+
+### What is covered
 
 The suite contains **34 tests** across seven sections:
 
 | Section | What it verifies |
-|---------|-----------------|
-| Task fundamentals | `mark_complete`, `add_task`, duplicate rejection, missing-task removal |
-| Sorting correctness | `sort_by_time` returns tasks in `HH:MM` ascending order, handles empty lists, does not mutate the original |
-| `generate_plan` | HIGH-priority tasks are scheduled before LOW; tasks that exceed the time budget are skipped with a reason; boundary case where task duration exactly equals remaining time |
-| Recurrence logic | Completing a `daily` task creates a new task due tomorrow; `weekly` advances by 7 days; `as-needed` returns `None` and stays marked done |
-| Conflict detection | Overlapping `scheduled_time` slots produce warning strings; clean schedules return `[]`; same-pet conflicts are also flagged |
-| Filter methods | `filter_by_status` and `filter_by_pet` return correct subsets; case-insensitive pet name matching works |
-| Edge cases | Owner with no pets, tied scheduled times, chained `complete_task` calls |
+|---|---|
+| Task fundamentals | `mark_complete`, `add_task`, duplicate rejection, task removal |
+| Sorting | `sort_by_time` returns HH:MM ascending order; does not mutate input |
+| `generate_plan` | HIGH before LOW; time-budget boundary (`<=`); skipped reasons |
+| Recurrence | `daily` +1 day; `weekly` +7 days; `as-needed` returns `None` |
+| Conflict detection | Same-time clashes; clean schedules return `[]`; same-pet conflicts |
+| Filters | `filter_by_status` and `filter_by_pet`; case-insensitive matching |
+| Edge cases | No pets; tied times; chained `complete_task` calls |
+
+### What worked
+
+Keeping the scheduling logic in a plain Python module meant every behaviour
+could be tested directly without mocking Streamlit or a browser. The fixed
+reference date (`date(2026, 4, 1)`) in recurrence tests eliminated flakiness
+from the system clock.
+
+### What didn't / known gaps
+
+- **Duration overlap** — a 30-min task at `07:00` and a task at `07:15` are
+  not flagged as conflicting. Documented tradeoff, not a coverage hole.
+- **Multi-pet UI** — the Streamlit form supports one pet per session; the
+  backend supports multiple. No end-to-end test covers the multi-pet path
+  through the UI.
+- **AI layer** — RAG tests (retrieval accuracy, Claude response consistency)
+  are not yet written. They will be added alongside the RAG implementation.
 
 ### Confidence level
 
-**4 / 5 stars**
+**4 / 5** for the scheduling layer. All 34 tests pass. One star withheld for
+the conflict-detection gap described above.
 
-All 34 tests pass and cover both happy paths and the most important edge cases.
-One star is withheld because conflict detection uses exact start-time matching only — a 30-minute task at `07:00` and a task at `07:15` will not be flagged as overlapping (see `reflection.md` Tradeoff 2).
-That gap is a known limitation of the current algorithm, not a test coverage hole.
+---
 
-## Getting started
+## Reflection
 
-### Setup
+Building PawPal+ taught me two things I expect to carry into every future
+project.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
+**Separation of concerns is not just good style — it is a testing strategy.**
+The decision to keep all logic in `pawpal_system.py` and all UI in `app.py`
+was made early for readability. Its real payoff came at test time: 34 tests
+written without importing Streamlit once. When the UI needed changes, none of
+the tests broke. That boundary paid for itself many times over.
 
-### Suggested workflow
+**AI tools accelerate execution but do not replace understanding.** Copilot
+generated test scaffolds that were technically correct but tested the wrong
+things — asserting object identity instead of behaviour, or implying a design
+decision (`DailyPlan.pet`) that had already been deliberately reversed.
+Catching those suggestions required reading the code, not just running the
+tests. The lesson is that AI is most useful when you already know what you
+want and ask for something specific. Broad prompts produce plausible-looking
+output that can quietly embed wrong assumptions into your codebase.
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+Adding RAG to this project reinforced a third idea: **grounding matters**.
+A language model answering "is this walk schedule enough for a Husky?"
+without context will give a generic answer. The same model given three
+retrieved facts about Husky exercise requirements will give a useful one.
+The retrieval step is not a pre-processing nicety — it is what makes the AI
+output trustworthy enough to act on.

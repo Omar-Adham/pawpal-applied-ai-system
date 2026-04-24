@@ -1,5 +1,6 @@
 import streamlit as st
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority
+from rag import generate_advice
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
@@ -199,3 +200,10 @@ else:
                     st.info(f"**{task.name}** — already done today")
                 else:
                     st.warning(f"**{task.name}** — {reason}")
+
+        # AI advice note — RAG layer
+        st.divider()
+        st.markdown("#### 🐾 AI Care Advice")
+        with st.spinner("Fetching personalised advice..."):
+            advice = generate_advice(plan, owner)
+        st.success(advice)
