@@ -25,6 +25,7 @@ CATEGORY_TO_KB_KEY = {
     "meds":       "health",
     "grooming":   "grooming",
     "general":    "health",
+    "other":      "health",
 }
 
 

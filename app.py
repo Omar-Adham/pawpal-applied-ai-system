@@ -43,14 +43,19 @@ with st.form("setup_form"):
     submitted = st.form_submit_button("Save owner & pet")
 
 if submitted:
-    owner = Owner(name=owner_name, available_minutes_per_day=int(available_time))
-    pet = Pet(name=pet_name, species=species, age=int(pet_age))
-    owner.add_pet(pet)
-    st.session_state.owner = owner
-    st.session_state.current_pet = pet
-    st.session_state.plan = None
-    st.session_state.advice = None
-    st.success(f"Saved! Owner: {owner.name} | Pet: {pet.name} ({pet.species})")
+    if not owner_name.strip():
+        st.error("Owner name cannot be empty.")
+    elif not pet_name.strip():
+        st.error("Pet name cannot be empty.")
+    else:
+        owner = Owner(name=owner_name.strip(), available_minutes_per_day=int(available_time))
+        pet = Pet(name=pet_name.strip(), species=species, age=int(pet_age))
+        owner.add_pet(pet)
+        st.session_state.owner = owner
+        st.session_state.current_pet = pet
+        st.session_state.plan = None
+        st.session_state.advice = None
+        st.success(f"Saved! Owner: {owner.name} | Pet: {pet.name} ({pet.species})")
 
 # ---------------------------------------------------------------------------
 # Section 2 — Add tasks to the pet
@@ -75,7 +80,7 @@ else:
         scheduled_time = st.text_input("Scheduled time (HH:MM)", value="09:00")
         category = st.selectbox(
             "Category",
-            ["walk", "feed", "meds", "grooming", "enrichment", "general"],
+            ["walk", "feed", "meds", "grooming", "enrichment", "general", "other"],
         )
 
     if st.button("Add task"):
@@ -92,13 +97,14 @@ else:
         elif not time_valid:
             st.error("Scheduled time must be in HH:MM format, e.g. 07:30.")
         else:
+            normalized_time = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
             task = Task(
-                name=task_name,
+                name=task_name.strip(),
                 category=category,
                 duration_minutes=int(duration),
                 priority=Priority[priority_str],
                 frequency=frequency,
-                scheduled_time=scheduled_time,
+                scheduled_time=normalized_time,
             )
             try:
                 pet.add_task(task)
@@ -239,7 +245,7 @@ else:
 # ---------------------------------------------------------------------------
 plan = st.session_state.plan
 _skippable_check = [t for t in plan.skipped if plan.reasoning.get(t.name) != "already completed"] if plan else []
-if plan and (plan.scheduled or _skippable_check):
+if plan and st.session_state.owner and (plan.scheduled or _skippable_check):
     st.divider()
     st.subheader("5. Edit Schedule")
 
@@ -339,20 +345,29 @@ if plan and (plan.scheduled or _skippable_check):
         new_scheduled = []
         new_skipped = list(plan.skipped)  # start with full skipped list; we'll patch it
 
-        def validate_time(time_str, task_name):
+        def validate_and_normalize_time(time_str, task_name):
             parts = str(time_str).split(":")
             if not (len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit()
                     and 0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59):
                 errors.append(f"**{task_name}**: invalid time '{time_str}' — use HH:MM format.")
+                return None
+            return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+
+        def validate_duration(duration, task_name):
+            if int(duration) < 1:
+                errors.append(f"**{task_name}**: duration must be at least 1 minute.")
                 return False
             return True
 
         # Process scheduled table
         for row in to_records(edited_scheduled):
             task = scheduled_task_map[row["Task"]]
-            if not validate_time(row["Time"], task.name):
+            normalized = validate_and_normalize_time(row["Time"], task.name)
+            if normalized is None:
                 continue
-            task.scheduled_time = row["Time"]
+            if not validate_duration(row["Duration (min)"], task.name):
+                continue
+            task.scheduled_time = normalized
             task.duration_minutes = int(row["Duration (min)"])
             task.priority = Priority[row["Priority"]]
             if row["Keep"]:
@@ -367,9 +382,12 @@ if plan and (plan.scheduled or _skippable_check):
             if not row["Add"]:
                 continue
             task = skipped_task_map[row["Task"]]
-            if not validate_time(row["Time"], task.name):
+            normalized = validate_and_normalize_time(row["Time"], task.name)
+            if normalized is None:
                 continue
-            task.scheduled_time = row["Time"]
+            if not validate_duration(row["Duration (min)"], task.name):
+                continue
+            task.scheduled_time = normalized
             task.duration_minutes = int(row["Duration (min)"])
             task.priority = Priority[row["Priority"]]
             plan.reasoning.pop(task.name, None)
