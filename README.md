@@ -1,5 +1,17 @@
 # PawPal+ Applied AI System
 
+## Video Walkthrough
+
+[Watch the Loom walkthrough](https://www.loom.com/share/792c52a5455748cf88958afeba1dfea9)
+
+---
+
+## Portfolio Reflection
+
+This project shows that I approach AI engineering as a systems problem, not just a prompting problem. I built a deterministic scheduling layer first, covered it with 62 automated tests, and only then added the AI layer — so the AI has a solid foundation to sit on. When the RAG pipeline produced wrong output (medication advice for every schedule), I diagnosed it at the retrieval level rather than blaming the model. When the app crashed on a missing file, I added a graceful fallback rather than assuming the file would always be there. That discipline — understanding what breaks, why it breaks, and fixing the root cause — is what I bring to AI engineering work.
+
+---
+
 ## Summary
 
 PawPal+ is a pet care scheduling assistant that combines rule-based planning with Retrieval-Augmented Generation (RAG) to give owners personalised, breed-aware advice alongside their daily schedule. Instead of returning a generic AI response, it retrieves specific care facts from a local knowledge base and grounds every piece of advice in those facts — so the output is relevant to the actual pet, age group, and tasks in the schedule.
