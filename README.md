@@ -59,7 +59,7 @@ Human review happens at two points: when the owner reads the schedule and decide
 
 ```bash
 # 1. Clone the repo
-git clone <your-repo-url>
+git clone https://github.com/Omar-Adham/pawpal-applied-ai-system
 cd pawpal-applied-ai-system
 
 # 2. Create and activate a virtual environment
