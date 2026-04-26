@@ -119,19 +119,82 @@ else:
         sorted_tasks = scheduler.sort_by_time(pet.tasks)
 
         st.write(f"**{pet.name}'s tasks** (sorted by time):")
-        rows = [
+        task_rows = [
             {
+                "Delete": False,
                 "Time": t.scheduled_time,
                 "Task": t.name,
                 "Category": t.category,
                 "Duration (min)": t.duration_minutes,
                 "Priority": t.priority.name,
                 "Frequency": t.frequency,
-                "Done": "✓" if t.is_completed else "",
             }
             for t in sorted_tasks
         ]
-        st.table(rows)
+        edited_pet_tasks = st.data_editor(
+            task_rows,
+            key=f"pet_tasks_{pet.name}",
+            column_config={
+                "Delete": st.column_config.CheckboxColumn("Delete", default=False, width="small"),
+                "Time": st.column_config.TextColumn("Time (HH:MM)", width="small"),
+                "Task": st.column_config.TextColumn("Task", disabled=True),
+                "Category": st.column_config.TextColumn("Category", disabled=True, width="small"),
+                "Duration (min)": st.column_config.NumberColumn(
+                    "Duration (min)", min_value=1, max_value=480, width="small"
+                ),
+                "Priority": st.column_config.SelectboxColumn(
+                    "Priority", options=["HIGH", "MEDIUM", "LOW"], width="small"
+                ),
+                "Frequency": st.column_config.SelectboxColumn(
+                    "Frequency", options=["daily", "weekly", "as-needed"], width="small"
+                ),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+        )
+
+        if st.button("Apply task edits", key=f"apply_pet_tasks_{pet.name}"):
+            task_map = {t.name: t for t in pet.tasks}
+            errors = []
+            tasks_to_keep = []
+
+            def _to_records(data):
+                return data.to_dict("records") if hasattr(data, "to_dict") else data
+
+            for row in _to_records(edited_pet_tasks):
+                task = task_map.get(row["Task"])
+                if task is None:
+                    continue
+                if row["Delete"]:
+                    continue
+                t_parts = str(row["Time"]).split(":")
+                if not (
+                    len(t_parts) == 2
+                    and t_parts[0].isdigit()
+                    and t_parts[1].isdigit()
+                    and 0 <= int(t_parts[0]) <= 23
+                    and 0 <= int(t_parts[1]) <= 59
+                ):
+                    errors.append(f"**{task.name}**: invalid time '{row['Time']}' — use HH:MM.")
+                    tasks_to_keep.append(task)
+                    continue
+                task.scheduled_time = f"{int(t_parts[0]):02d}:{int(t_parts[1]):02d}"
+                task.duration_minutes = int(row["Duration (min)"])
+                task.priority = Priority[row["Priority"]]
+                task.frequency = row["Frequency"]
+                tasks_to_keep.append(task)
+
+            if errors:
+                for msg in errors:
+                    st.error(msg)
+            elif not tasks_to_keep:
+                st.warning("Keep at least one task — uncheck Delete on at least one row.")
+            else:
+                pet.tasks = tasks_to_keep
+                st.session_state.plan = None
+                st.session_state.advice = None
+                st.rerun()
     else:
         st.info("No tasks yet — add one above.")
 
@@ -156,15 +219,47 @@ else:
             "you won't be able to do them both at once. "
             "Edit a task's scheduled time to resolve each conflict."
         )
-        for warning in conflicts:
-            time_part = warning.split("conflict at ")[-1].split(":")[0] + \
-                        ":" + warning.split("conflict at ")[-1].split(":")[1].split(",")[0].strip()
-            with st.expander(f"Conflict at {warning.split('conflict at ')[-1].split(':')[0]}:{warning.split('conflict at ')[-1].split(':')[1].split(',')[0].strip()}"):
+        # Build task lookup for inline conflict editing
+        all_task_lookup = {}
+        for _pet in st.session_state.owner.pets:
+            for _task in _pet.tasks:
+                all_task_lookup[_task.name] = _task
+
+        for idx, warning in enumerate(conflicts):
+            after_conflict = warning.split("conflict at ", 1)[-1]
+            time_slot, pairs_str = after_conflict.split(": ", 1)
+            pairs = [p.strip() for p in pairs_str.split(", ")]
+
+            with st.expander(f"Conflict at {time_slot}"):
                 st.warning(warning)
-                st.caption(
-                    "Tip: open 'Add Tasks' above, remove one of these tasks, "
-                    "and re-add it with a different start time."
-                )
+                st.markdown("**Edit a task's time to resolve this conflict:**")
+                for pair in pairs:
+                    pet_name, task_name = pair.split(":", 1)
+                    edit_task = all_task_lookup.get(task_name)
+                    if edit_task is None:
+                        continue
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        new_time = st.text_input(
+                            f"{pet_name} — {task_name}",
+                            value=edit_task.scheduled_time,
+                            key=f"conflict_edit_{idx}_{task_name}",
+                        )
+                    with col2:
+                        st.write("")
+                        if st.button("Save", key=f"conflict_save_{idx}_{task_name}"):
+                            t_parts = new_time.split(":")
+                            if (
+                                len(t_parts) == 2
+                                and t_parts[0].isdigit()
+                                and t_parts[1].isdigit()
+                                and 0 <= int(t_parts[0]) <= 23
+                                and 0 <= int(t_parts[1]) <= 59
+                            ):
+                                edit_task.scheduled_time = f"{int(t_parts[0]):02d}:{int(t_parts[1]):02d}"
+                                st.rerun()
+                            else:
+                                st.error(f"Invalid time '{new_time}' — use HH:MM (e.g. 09:30).")
     else:
         st.success("No conflicts — every task has a unique start time.")
 
